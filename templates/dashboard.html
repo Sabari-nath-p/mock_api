@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mock API Dashboard</title>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    h2 { margin-top: 30px; }
+    .endpoint { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+    label { display: block; margin-top: 10px; }
+    textarea, input, select { width: 100%; padding: 5px; margin-top: 5px; }
+    button { margin-top: 10px; padding: 10px; }
+    .alert { color: red; font-weight: bold; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Mock API Creator</h1>
+
+  <h2>Create New Endpoint</h2>
+  <form id="createForm">
+    <label>Path (e.g., /api/test)</label>
+    <input type="text" id="path" required>
+
+    <label>Method</label>
+    <select id="method">
+      <option>GET</option>
+      <option>POST</option>
+      <option>PUT</option>
+      <option>PATCH</option>
+      <option>DELETE</option>
+    </select>
+
+    <label>Response JSON</label>
+    <textarea id="responseJson" rows="5">{ "message": "Success" }</textarea>
+
+    <label>Status Code</label>
+    <input type="number" id="statusCode" value="200">
+
+    <label>Auth Key (optional)</label>
+    <input type="text" id="authKey">
+
+    <label>Validation Schema (JSON format)</label>
+    <textarea id="validationSchema" rows="6">{
+  "username": { "required": true, "type": "str" },
+  "role": { "match": ["admin", "user"] }
+}</textarea>
+
+    <h3>Validation Schema Builder</h3>
+    <div id="schemaBuilder">
+      <label>Field Name</label>
+      <input type="text" id="fieldName">
+
+      <label>Type</label>
+      <select id="fieldType">
+        <option value="str">String</option>
+        <option value="int">Integer</option>
+        <option value="float">Float</option>
+        <option value="bool">Boolean</option>
+      </select>
+
+      <label>Required</label>
+      <select id="fieldRequired">
+        <option value="true">True</option>
+        <option value="false">False</option>
+      </select>
+
+      <label>Match (comma separated values - optional)</label>
+      <input type="text" id="fieldMatch">
+
+      <button type="button" onclick="addField()">Add Field</button>
+    </div>
+
+    <button type="submit">Create Endpoint</button>
+    <div class="alert" id="errorMsg"></div>
+  </form>
+
+  <h2>Existing Endpoints</h2>
+
+  <label for="methodFilter"><strong>Filter by Method:</strong></label>
+  <select id="methodFilter" onchange="filterEndpoints()">
+    <option value="ALL">All</option>
+    <option value="GET">GET</option>
+    <option value="POST">POST</option>
+    <option value="PUT">PUT</option>
+    <option value="PATCH">PATCH</option>
+    <option value="DELETE">DELETE</option>
+  </select>
+
+  <div id="endpoints">
+    {% for ep in endpoints %}
+      <div class="endpoint" data-method="{{ ep.method }}">
+        <strong>{{ ep.method }}</strong> {{ ep.path }}
+        <button onclick="deleteEndpoint(event, {{ ep.id }})">Delete</button>
+        <pre>{{ ep.response_json }}</pre>
+      </div>
+    {% endfor %}
+  </div>
+
+  <script>
+    let schema = {};
+
+    function addField() {
+      const name = document.getElementById("fieldName").value.trim();
+      const type = document.getElementById("fieldType").value;
+      const required = document.getElementById("fieldRequired").value === "true";
+      const matchRaw = document.getElementById("fieldMatch").value;
+
+      if (!name) {
+        alert("Field name is required");
+        return;
+      }
+
+      const field = {
+        required: required,
+        type: type
+      };
+
+      if (matchRaw) {
+        field.match = matchRaw.split(",").map(x => x.trim());
+      }
+
+      schema[name] = field;
+      document.getElementById("validationSchema").value = JSON.stringify(schema, null, 2);
+
+      // Reset inputs
+      document.getElementById("fieldName").value = "";
+      document.getElementById("fieldMatch").value = "";
+    }
+
+    document.getElementById("createForm").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const errorMsg = document.getElementById("errorMsg");
+      errorMsg.textContent = "";
+
+      try {
+        const path = document.getElementById("path").value;
+        const method = document.getElementById("method").value;
+        const responseJson = JSON.parse(document.getElementById("responseJson").value);
+        const status = parseInt(document.getElementById("statusCode").value);
+        const authKey = document.getElementById("authKey").value;
+        const validation = JSON.parse(document.getElementById("validationSchema").value);
+
+        const responses = {};
+        responses[method] = {
+          response: responseJson,
+          status,
+          auth_key: authKey,
+          validation
+        };
+
+        const body = {
+          path,
+          responses
+        };
+
+        const res = await fetch("/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        if (res.ok) {
+          alert("Endpoint created successfully");
+          location.reload();
+        } else {
+          const err = await res.json();
+          errorMsg.textContent = "Error: " + err.error;
+        }
+      } catch (err) {
+        errorMsg.textContent = "Invalid JSON input. Please check your Response JSON and Validation Schema.";
+      }
+    });
+
+    function deleteEndpoint(e, id) {
+      e.preventDefault();
+      fetch(`/delete/${id}`, { method: 'DELETE' })
+        .then(res => res.json())
+        .then(data => {
+          alert(data.message);
+          location.reload();
+        });
+    }
+
+    function filterEndpoints() {
+      const selectedMethod = document.getElementById("methodFilter").value;
+      const endpoints = document.querySelectorAll(".endpoint");
+
+      endpoints.forEach(ep => {
+        const method = ep.getAttribute("data-method");
+        if (selectedMethod === "ALL" || method === selectedMethod) {
+          ep.style.display = "block";
+        } else {
+          ep.style.display = "none";
+        }
+      });
+    }
+  </script>
+</body>
+</html>
