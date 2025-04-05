@@ -16,7 +16,7 @@
 <body>
   <h1>Mock API Creator</h1>
 
-  <h2>Create or Edit Endpoint</h2>
+  <h2>Create New Endpoint</h2>
   <form id="createForm">
     <label>Path (e.g., /api/test)</label>
     <input type="text" id="path" required>
@@ -38,9 +38,6 @@
 
     <label>Auth Key (optional)</label>
     <input type="text" id="authKey">
-
-    <label>Actual API URL (optional)</label>
-    <input type="text" id="actualApi">
 
     <label>Validation Schema (JSON format)</label>
     <textarea id="validationSchema" rows="6">{
@@ -73,7 +70,7 @@
       <button type="button" onclick="addField()">Add Field</button>
     </div>
 
-    <button type="submit">Save Endpoint</button>
+    <button type="submit">Create Endpoint</button>
     <div class="alert" id="errorMsg"></div>
   </form>
 
@@ -91,20 +88,16 @@
 
   <div id="endpoints">
     {% for ep in endpoints %}
-      {% for method, details in ep.responses.items() %}
-        <div class="endpoint" data-method="{{ method }}">
-          <strong>{{ method }}</strong> {{ ep.path }}
-          <button onclick="deleteEndpoint(event, {{ ep.id }})">Delete</button>
-          <button onclick='editEndpoint({{ ep.id }}, {{ ep | tojson }}, "{{ method }}")'>Edit</button>
-          <pre>{{ details.response }}</pre>
-        </div>
-      {% endfor %}
+      <div class="endpoint" data-method="{{ ep.method }}">
+        <strong>{{ ep.method }}</strong> {{ ep.path }}
+        <button onclick="deleteEndpoint(event, {{ ep.id }})">Delete</button>
+        <pre>{{ ep.response_json }}</pre>
+      </div>
     {% endfor %}
   </div>
 
   <script>
     let schema = {};
-    let currentId = null;
 
     function addField() {
       const name = document.getElementById("fieldName").value.trim();
@@ -117,11 +110,19 @@
         return;
       }
 
-      const field = { required, type };
-      if (matchRaw) field.match = matchRaw.split(",").map(x => x.trim());
+      const field = {
+        required: required,
+        type: type
+      };
+
+      if (matchRaw) {
+        field.match = matchRaw.split(",").map(x => x.trim());
+      }
+
       schema[name] = field;
       document.getElementById("validationSchema").value = JSON.stringify(schema, null, 2);
 
+      // Reset inputs
       document.getElementById("fieldName").value = "";
       document.getElementById("fieldMatch").value = "";
     }
@@ -138,29 +139,28 @@
         const status = parseInt(document.getElementById("statusCode").value);
         const authKey = document.getElementById("authKey").value;
         const validation = JSON.parse(document.getElementById("validationSchema").value);
-        const actualApi = document.getElementById("actualApi").value;
 
         const responses = {};
         responses[method] = {
           response: responseJson,
           status,
           auth_key: authKey,
-          schema: validation,
-          actual_api: actualApi
+          validation
         };
 
-        const body = { path, responses };
-        const url = currentId ? `/edit/${currentId}` : "/create";
-        const methodType = currentId ? "PUT" : "POST";
+        const body = {
+          path,
+          responses
+        };
 
-        const res = await fetch(url, {
-          method: methodType,
+        const res = await fetch("/create", {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
 
         if (res.ok) {
-          alert("Endpoint saved successfully");
+          alert("Endpoint created successfully");
           location.reload();
         } else {
           const err = await res.json();
@@ -187,21 +187,12 @@
 
       endpoints.forEach(ep => {
         const method = ep.getAttribute("data-method");
-        ep.style.display = selectedMethod === "ALL" || method === selectedMethod ? "block" : "none";
+        if (selectedMethod === "ALL" || method === selectedMethod) {
+          ep.style.display = "block";
+        } else {
+          ep.style.display = "none";
+        }
       });
-    }
-
-    function editEndpoint(id, endpoint, method) {
-      currentId = id;
-      document.getElementById("path").value = endpoint.path;
-      const details = endpoint.responses[method];
-
-      document.getElementById("method").value = method;
-      document.getElementById("responseJson").value = JSON.stringify(details.response, null, 2);
-      document.getElementById("statusCode").value = details.status;
-      document.getElementById("authKey").value = details.auth_key || "";
-      document.getElementById("actualApi").value = details.actual_api || "";
-      document.getElementById("validationSchema").value = JSON.stringify(details.schema || {}, null, 2);
     }
   </script>
 </body>

@@ -1,0 +1,28 @@
+[
+  {
+    "path": "test",
+    "responses": {
+      "GET": {
+        "response": {
+          "message": "Success"
+        },
+        "status": 200,
+        "auth_key": "",
+        "actual_api": "",
+        "validation": {
+          "username": {
+            "required": true,
+            "type": "str"
+          },
+          "role": {
+            "match": [
+              "admin",
+              "user"
+            ]
+          }
+        }
+      }
+    },
+    "id": 1
+  }
+]

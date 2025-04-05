@@ -1,124 +1,104 @@
+# New app.py for Mock API Tool
 from flask import Flask, request, jsonify, render_template
-from flask_sqlalchemy import SQLAlchemy
 import json
 import os
+import requests
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mockapi.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-db = SQLAlchemy(app)
+DATA_FILE = "endpoints.json"
 
-class MockEndpoint(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    path = db.Column(db.String(255), nullable=False)
-    method = db.Column(db.String(10), nullable=False)
-    response_json = db.Column(db.Text, nullable=False)
-    status_code = db.Column(db.Integer, default=200)
-    auth_key = db.Column(db.String(255), nullable=True)
-    validation_schema = db.Column(db.Text, nullable=True)
+def load_endpoints():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r') as f:
+            return json.load(f)
+    return []
 
-@app.before_request
-def create_tables():
-    db.create_all()
+def save_endpoints(data):
+    with open(DATA_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
 
-@app.route('/')
+@app.route("/")
 def index():
-    endpoints = MockEndpoint.query.all()
-    return render_template('dashboard.html', endpoints=endpoints)
+    endpoints = load_endpoints()
+    return render_template("dashboard.html", endpoints=endpoints)
 
-@app.route('/create', methods=['POST'])
-def create_endpoint():
-    data = request.json
-    path = data.get('path')
-    responses = data.get('responses')
+@app.route("/create", methods=["POST"])
+def create():
+    new_data = request.get_json()
+    endpoints = load_endpoints()
 
-    if not path or not responses:
-        return jsonify({"error": "Missing required data"}), 400
+    for ep in endpoints:
+        if ep['path'] == new_data['path']:
+            ep['responses'].update(new_data['responses'])
+            break
+    else:
+        new_data['id'] = len(endpoints) + 1
+        endpoints.append(new_data)
 
-    for method, config in responses.items():
-        try:
-            response = config.get('response', {})
-            status = int(config.get('status', 200))
-            auth_key = config.get('auth_key')
-            validation = config.get('validation') or {}
+    save_endpoints(endpoints)
+    return jsonify({"message": "Endpoint created/updated successfully."})
 
-            response_json = json.dumps(response)
-            validation_json = json.dumps(validation)
+@app.route("/edit/<int:endpoint_id>", methods=["PUT"])
+def edit(endpoint_id):
+    updated_data = request.get_json()
+    endpoints = load_endpoints()
+    found = False
 
-            existing = MockEndpoint.query.filter_by(path=path, method=method).first()
-            if existing:
-                existing.response_json = response_json
-                existing.status_code = status
-                existing.auth_key = auth_key
-                existing.validation_schema = validation_json
-            else:
-                db.session.add(MockEndpoint(
-                    path=path, method=method,
-                    response_json=response_json,
-                    status_code=status,
-                    auth_key=auth_key,
-                    validation_schema=validation_json
-                ))
-        except Exception as e:
-            return jsonify({"error": f"Invalid config for {method}: {str(e)}"}), 400
+    for i, ep in enumerate(endpoints):
+        if ep['id'] == endpoint_id:
+            endpoints[i]['path'] = updated_data.get('path', ep['path'])
+            endpoints[i]['responses'] = updated_data.get('responses', ep['responses'])
+            found = True
+            break
 
-    db.session.commit()
-    return jsonify({"message": "Endpoint created"}), 201
+    if not found:
+        return jsonify({"error": "Endpoint not found."}), 404
 
-@app.route('/delete/<int:endpoint_id>', methods=['DELETE'])
-def delete_endpoint(endpoint_id):
-    endpoint = MockEndpoint.query.get(endpoint_id)
-    if not endpoint:
-        return jsonify({"error": "Endpoint not found"}), 404
+    save_endpoints(endpoints)
+    return jsonify({"message": "Endpoint updated successfully."})
 
-    db.session.delete(endpoint)
-    db.session.commit()
-    return jsonify({"message": "Endpoint deleted"})
+@app.route("/delete/<int:endpoint_id>", methods=["DELETE"])
+def delete(endpoint_id):
+    endpoints = load_endpoints()
+    endpoints = [ep for ep in endpoints if ep['id'] != endpoint_id]
+    save_endpoints(endpoints)
+    return jsonify({"message": "Endpoint deleted."})
 
-@app.route('/<path:custom_path>', methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-def handle_mock(custom_path):
-    path = "/" + custom_path
+@app.route("/api/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+def handle_api(subpath):
+    full_path = f"/api/{subpath}"
     method = request.method
-    ep = MockEndpoint.query.filter_by(path=path, method=method).first()
+    endpoints = load_endpoints()
 
-    if not ep:
-        return jsonify({"error": "Not found or method not allowed"}), 404
+    for ep in endpoints:
+        if ep['path'] == full_path and method in ep['responses']:
+            details = ep['responses'][method]
+            actual_api = details.get("actual_api")
+            schema = details.get("schema")
 
-    # Check for Authorization header
-    if ep.auth_key:
-        provided_key = request.headers.get("Authorization")
-        if provided_key != ep.auth_key:
-            return jsonify({"error": "Unauthorized"}), 401
+            # Schema validation if provided
+            if schema:
+                req_data = request.get_json(silent=True) or {}
+                missing_fields = [field for field in schema if field not in req_data]
+                if missing_fields:
+                    return jsonify({"error": f"Missing fields in request: {missing_fields}"}), 400
 
-    # Validate input JSON if method requires body
-    if method in ['POST', 'PUT', 'PATCH']:
-        try:
-            input_data = request.get_json(force=True)
-            schema = json.loads(ep.validation_schema) if ep.validation_schema else {}
+            if actual_api:
+                try:
+                    resp = requests.request(
+                        method,
+                        actual_api,
+                        headers={k: v for k, v in request.headers if k != 'Host'},
+                        json=request.get_json(silent=True)
+                    )
+                    return (resp.content, resp.status_code, resp.headers.items())
+                except Exception as e:
+                    return jsonify({"error": str(e)}), 500
 
-            for field, rule in schema.items():
-                value = input_data.get(field)
+            return jsonify(details.get("response", {})), details.get("status", 200)
 
-                if rule.get("required") and field not in input_data:
-                    return jsonify({"error": f"'{field}' is required"}), 400
-
-                if "type" in rule and field in input_data:
-                    expected_type = rule["type"]
-                    if expected_type == "int" and not isinstance(value, int):
-                        return jsonify({"error": f"'{field}' must be an integer"}), 400
-                    if expected_type == "str" and not isinstance(value, str):
-                        return jsonify({"error": f"'{field}' must be a string"}), 400
-
-                if "match" in rule and field in input_data:
-                    allowed_values = rule["match"]
-                    if value not in allowed_values:
-                        return jsonify({"error": f"'{field}' must be one of {allowed_values}"}), 400
-
-        except Exception as e:
-            return jsonify({"error": f"Validation error: {str(e)}"}), 400
-
-    return jsonify(json.loads(ep.response_json)), ep.status_code
+    return jsonify({"error": "No matching endpoint."}), 404
 
 if __name__ == '__main__':
     app.run(debug=True)
