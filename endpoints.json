@@ -24,5 +24,45 @@
       }
     },
     "id": 1
+  },
+  {
+    "path": "/mariya/api/services",
+    "responses": {
+      "GET": {
+        "response": {
+          "data": [
+            {
+              "base_rate": 100,
+              "bathoroom_rate": 20,
+              "duration": 30,
+              "room_rate": 20,
+              "service_name": "Deep Cleaning",
+              "squarefeet_rate": 30
+            },
+            {
+              "base_rate": 100,
+              "bathoroom_rate": 20,
+              "duration": 30,
+              "room_rate": 20,
+              "service_name": "Moving In Out",
+              "squarefeet_rate": 30
+            },
+            {
+              "base_rate": 100,
+              "bathoroom_rate": 20,
+              "duration": 30,
+              "room_rate": 20,
+              "service_name": "Normal",
+              "squarefeet_rate": 30
+            }
+          ]
+        },
+        "status": 200,
+        "auth_key": "",
+        "schema": {},
+        "actual_api": ""
+      }
+    },
+    "id": 2
   }
 ]

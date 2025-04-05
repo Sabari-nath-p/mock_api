@@ -67,11 +67,12 @@ def delete(endpoint_id):
 
 @app.route("/api/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 def handle_api(subpath):
-    full_path = f"/api/{subpath}"
+    full_path = f"/{subpath}"
     method = request.method
     endpoints = load_endpoints()
-
+    print(full_path)
     for ep in endpoints:
+        print(ep['path'])
         if ep['path'] == full_path and method in ep['responses']:
             details = ep['responses'][method]
             actual_api = details.get("actual_api")
